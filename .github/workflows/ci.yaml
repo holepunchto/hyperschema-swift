@@ -22,3 +22,14 @@ jobs:
     steps:
       - uses: holepunchto/actions/bare-base@v1
       - run: npm test
+  swift:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    name: Swift / ${{ matrix.os }}
+    steps:
+      - uses: holepunchto/actions/node-base@v1
+      - uses: swift-actions/setup-swift@v2
+      - run: npm run test:swift
+      - run: npm run test:cross-language
