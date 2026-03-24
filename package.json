@@ -27,10 +27,11 @@
   },
   "scripts": {
     "format": "prettier . --write",
-    "test": "prettier . --check && brittle test/index.js",
-    "test:bare": "prettier . --check && bare test/index.js",
-    "test:swift": "prettier . --check && brittle test/swift.js",
-    "test:cross-language": "prettier . --check && brittle test/cross-language.js"
+    "lint": "prettier . --check",
+    "test": "npm run lint && brittle test/index.js",
+    "test:bare": "npm run lint && bare test/index.js",
+    "test:swift": "npm run lint && brittle test/swift.js",
+    "test:cross-language": "npm run lint && brittle test/cross-language.js"
   },
   "repository": {
     "type": "git",
