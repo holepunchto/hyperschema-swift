@@ -1,14 +1,13 @@
 {
   "name": "hyperschema-swift",
-  "version": "0.0.1",
-  "description": "Swift code generation for hyperschema",
-  "main": "index.js",
+  "version": "0.0.0",
+  "description": "Swift code generation for Hyperschema",
   "exports": {
     "./package": "./package.json",
     ".": "./index.js"
   },
   "files": [
-    "lib/*.js",
+    "lib",
     "index.js"
   ],
   "imports": {
@@ -28,10 +27,9 @@
   "scripts": {
     "format": "prettier . --write",
     "lint": "prettier . --check",
-    "test": "npm run lint && brittle test/index.js",
-    "test:bare": "npm run lint && bare test/index.js",
-    "test:swift": "npm run lint && brittle test/swift.js",
-    "test:cross-language": "npm run lint && brittle test/cross-language.js"
+    "test": "npm run test:node && npm run test:bare",
+    "test:node": "brittle-node test.js",
+    "test:bare": "brittle-bare test.js"
   },
   "repository": {
     "type": "git",
