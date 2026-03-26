@@ -19,7 +19,7 @@ const path = require('path')
 
 const FIXTURES_DIR = path.resolve(require.resolve('hyperschema-test'), '../fixtures')
 
-const SUPPORTED_TYPES = new Set(['uint', 'bool'])
+const SUPPORTED_TYPES = new Set(['uint', 'bool', 'string'])
 
 function toSwiftTypeName(name) {
   return name
@@ -36,12 +36,19 @@ function toSwiftInstanceName(name) {
 function toSwiftLiteral(value, type) {
   if (type === 'uint') return String(value)
   if (type === 'bool') return value ? 'true' : 'false'
+  if (type === 'string') return JSON.stringify(value)
   throw new Error(`Unsupported type for Swift literal: ${type}`)
+}
+
+function toSwiftMessageLiteral(value, type) {
+  if (type === 'string') return JSON.stringify(value).slice(1, -1)
+  return String(value)
 }
 
 function fixtureSupported(schema) {
   return schema.schema.every(
-    (struct) => struct.fields && struct.fields.every((f) => SUPPORTED_TYPES.has(f.type))
+    (struct) =>
+      struct.fields && struct.fields.every((f) => SUPPORTED_TYPES.has(f.type) && f.required)
   )
 }
 
@@ -95,7 +102,7 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
 
     const assertions = struct.fields.map(
       (f) =>
-        `precondition(decoded.${f.name} == ${toSwiftLiteral(value[f.name], f.type)}, "field ${f.name}: expected ${value[f.name]}, got \\(decoded.${f.name})")`
+        `precondition(decoded.${f.name} == ${toSwiftLiteral(value[f.name], f.type)}, "field ${f.name}: expected ${toSwiftMessageLiteral(value[f.name], f.type)}, got \\(decoded.${f.name})")`
     )
 
     cases.push({
