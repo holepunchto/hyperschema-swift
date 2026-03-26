@@ -19,7 +19,7 @@ const path = require('path')
 
 const FIXTURES_DIR = path.resolve(require.resolve('hyperschema-test'), '../fixtures')
 
-const SUPPORTED_TYPES = new Set(['uint'])
+const SUPPORTED_TYPES = new Set(['uint', 'bool'])
 
 function toSwiftTypeName(name) {
   return name
@@ -35,6 +35,7 @@ function toSwiftInstanceName(name) {
 
 function toSwiftLiteral(value, type) {
   if (type === 'uint') return String(value)
+  if (type === 'bool') return value ? 'true' : 'false'
   throw new Error(`Unsupported type for Swift literal: ${type}`)
 }
 
