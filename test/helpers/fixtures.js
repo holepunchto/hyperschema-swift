@@ -1,7 +1,7 @@
 'use strict'
 
 // Loads test fixtures from hyperschema-fixtures and filters to types
-// supported by the current Swift codegen (uint only).
+// supported by the current Swift codegen.
 //
 // Each fixture:
 //   name      - human-readable description
@@ -33,6 +33,18 @@ function toSwiftInstanceName(name) {
   return pascal[0].toLowerCase() + pascal.slice(1)
 }
 
+// Resolves a single level of alias (e.g. @ns6/score -> uint).
+// Does not recurse through chained aliases; sufficient for current fixtures.
+function resolveAliasType(schema, typeName) {
+  if (!typeName.startsWith('@')) return typeName
+  const parts = typeName.slice(1).split('/')
+  const ns = parts[0]
+  const name = parts[1]
+  const entry = schema.schema.find((s) => s.namespace === ns && s.name === name)
+  if (entry && entry.alias) return entry.alias
+  return typeName
+}
+
 function toSwiftLiteral(value, type) {
   if (type === 'uint') return String(value)
   if (type === 'bool') return value ? 'true' : 'false'
@@ -45,6 +57,20 @@ function toSwiftLiteral(value, type) {
   throw new Error(`Unsupported type for Swift literal: ${type}`)
 }
 
+function getSwiftTypeName(type) {
+  if (type === 'uint') return 'UInt'
+  if (type === 'bool') return 'Bool'
+  if (type === 'string') return 'String'
+  if (type === 'buffer') return 'Data'
+  throw new Error(`Unsupported type: ${type}`)
+}
+
+function toSwiftArrayLiteral(values, elementType) {
+  if (values.length === 0) return `[${getSwiftTypeName(elementType)}]()`
+  const items = values.map((v) => toSwiftLiteral(v, elementType))
+  return `[${items.join(', ')}] as [${getSwiftTypeName(elementType)}]`
+}
+
 function toSwiftMessageLiteral(value, type) {
   if (type === 'string') return JSON.stringify(value).slice(1, -1)
   if (type === 'buffer') {
@@ -55,25 +81,42 @@ function toSwiftMessageLiteral(value, type) {
 }
 
 function fixtureSupported(schema) {
-  return schema.schema.every(
-    (struct) =>
-      struct.fields && struct.fields.every((f) => SUPPORTED_TYPES.has(f.type) && f.required)
-  )
+  return schema.schema.every((entry) => {
+    if (entry.alias) return SUPPORTED_TYPES.has(entry.alias)
+    if (entry.array) {
+      const elemType = resolveAliasType(schema, entry.type)
+      return SUPPORTED_TYPES.has(elemType)
+    }
+    if (entry.fields) {
+      return entry.fields.every((f) => SUPPORTED_TYPES.has(f.type) && f.required)
+    }
+    return false
+  })
 }
 
 function makeRegister(schema) {
   return function register(hyperschema) {
-    for (const struct of schema.schema) {
-      const ns = hyperschema.namespace(struct.namespace)
-      ns.register({
-        name: struct.name,
-        compact: struct.compact || false,
-        fields: struct.fields.map((f) => ({
-          name: f.name,
-          type: f.type,
-          required: f.required || false
-        }))
-      })
+    const namespaces = new Map()
+    for (const entry of schema.schema) {
+      if (!namespaces.has(entry.namespace)) {
+        namespaces.set(entry.namespace, hyperschema.namespace(entry.namespace))
+      }
+      const ns = namespaces.get(entry.namespace)
+      if (entry.alias) {
+        ns.register({ name: entry.name, alias: entry.alias })
+      } else if (entry.array) {
+        ns.register({ name: entry.name, array: true, type: entry.type })
+      } else {
+        ns.register({
+          name: entry.name,
+          compact: entry.compact || false,
+          fields: entry.fields.map((f) => ({
+            name: f.name,
+            type: f.type,
+            required: f.required || false
+          }))
+        })
+      }
     }
   }
 }
@@ -97,33 +140,62 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
   if (!fixtureSupported(schema)) continue
 
   const cases = []
+
+  // Find the primary type to test (last entry — arrays reference aliases defined before them)
+  const primary = schema.schema[schema.schema.length - 1]
+
   for (let i = 0; i < testData.values.length; i++) {
     const value = testData.values[i]
     const encoded = testData.encoded[i]
-    const struct = schema.schema[0]
 
-    const typeName = toSwiftTypeName(struct.name)
-    const instanceName = toSwiftInstanceName(struct.name)
+    if (primary.array) {
+      const instanceName = toSwiftInstanceName(primary.name)
+      const elemType = resolveAliasType(schema, primary.type)
+      const literal = toSwiftArrayLiteral(value, elemType)
 
-    const args = struct.fields
-      .map((f) => `${f.name}: ${toSwiftLiteral(value[f.name], f.type)}`)
-      .join(', ')
-
-    const assertions = struct.fields.map(
-      (f) =>
-        `precondition(decoded.${f.name} == ${toSwiftLiteral(value[f.name], f.type)}, "field ${f.name}: expected ${toSwiftMessageLiteral(value[f.name], f.type)}, got \\(decoded.${f.name})")`
-    )
-
-    cases.push({
-      type: `@${struct.namespace}/${struct.name}`,
-      value,
-      encoded,
-      swift: {
-        codec: instanceName,
-        encode: `${typeName}(${args})`,
-        assertions
+      const assertions = [
+        `precondition(decoded.count == ${value.length}, "expected count ${value.length}, got \\(decoded.count)")`
+      ]
+      for (let j = 0; j < value.length; j++) {
+        assertions.push(
+          `precondition(decoded[${j}] == ${toSwiftLiteral(value[j], elemType)}, "element ${j}: expected ${toSwiftMessageLiteral(value[j], elemType)}, got \\(decoded[${j}])")`
+        )
       }
-    })
+
+      cases.push({
+        type: `@${primary.namespace}/${primary.name}`,
+        value,
+        encoded,
+        swift: {
+          codec: instanceName,
+          encode: literal,
+          assertions
+        }
+      })
+    } else if (primary.fields) {
+      const typeName = toSwiftTypeName(primary.name)
+      const instanceName = toSwiftInstanceName(primary.name)
+
+      const args = primary.fields
+        .map((f) => `${f.name}: ${toSwiftLiteral(value[f.name], f.type)}`)
+        .join(', ')
+
+      const assertions = primary.fields.map(
+        (f) =>
+          `precondition(decoded.${f.name} == ${toSwiftLiteral(value[f.name], f.type)}, "field ${f.name}: expected ${toSwiftMessageLiteral(value[f.name], f.type)}, got \\(decoded.${f.name})")`
+      )
+
+      cases.push({
+        type: `@${primary.namespace}/${primary.name}`,
+        value,
+        encoded,
+        swift: {
+          codec: instanceName,
+          encode: `${typeName}(${args})`,
+          assertions
+        }
+      })
+    }
   }
 
   fixtures.push({
