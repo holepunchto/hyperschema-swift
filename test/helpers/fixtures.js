@@ -19,7 +19,7 @@ const path = require('path')
 
 const FIXTURES_DIR = path.resolve(require.resolve('hyperschema-test'), '../fixtures')
 
-const SUPPORTED_TYPES = new Set(['uint', 'bool', 'string'])
+const SUPPORTED_TYPES = new Set(['uint', 'bool', 'string', 'buffer'])
 
 function toSwiftTypeName(name) {
   return name
@@ -37,11 +37,20 @@ function toSwiftLiteral(value, type) {
   if (type === 'uint') return String(value)
   if (type === 'bool') return value ? 'true' : 'false'
   if (type === 'string') return JSON.stringify(value)
+  if (type === 'buffer') {
+    const bytes = value.data || []
+    if (bytes.length === 0) return 'Data()'
+    return `Data([${bytes.join(', ')}])`
+  }
   throw new Error(`Unsupported type for Swift literal: ${type}`)
 }
 
 function toSwiftMessageLiteral(value, type) {
   if (type === 'string') return JSON.stringify(value).slice(1, -1)
+  if (type === 'buffer') {
+    const bytes = value.data || []
+    return `[${bytes.join(', ')}]`
+  }
   return String(value)
 }
 
