@@ -1,6 +1,10 @@
 # hyperschema-swift
 
-Swift code generation for [hyperschema](https://github.com/holepunchto/hyperschema). Transforms schema definitions into Swift structs with binary codec conformance using [compact-encoding-swift](https://github.com/holepunchto/compact-encoding-swift).
+Swift code generation for [Hyperschema](https://github.com/holepunchto/hyperschema). Transforms schema definitions into Swift structs with binary codec conformance using <https://github.com/holepunchto/compact-encoding-swift>.
+
+```
+npm i hyperschema-swift
+```
 
 ## Usage
 
@@ -25,12 +29,6 @@ output/
   Package.swift
   Sources/Schema.swift
   schema.json
-```
-
-## Install
-
-```
-npm install hyperschema-swift
 ```
 
 ## License
