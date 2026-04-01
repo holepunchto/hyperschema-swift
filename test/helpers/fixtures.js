@@ -19,7 +19,7 @@ const path = require('path')
 
 const FIXTURES_DIR = path.resolve(require.resolve('hyperschema-test'), '../fixtures')
 
-const SUPPORTED_TYPES = new Set(['uint', 'bool', 'string', 'buffer'])
+const SUPPORTED_PRIMITIVE_TYPES = new Set(['uint', 'bool', 'string', 'buffer'])
 
 function toSwiftTypeName(name) {
   return name
@@ -45,7 +45,15 @@ function resolveAliasType(schema, typeName) {
   return typeName
 }
 
-function toSwiftLiteral(value, type) {
+function resolveStructEntry(schema, typeName) {
+  const resolved = resolveAliasType(schema, typeName)
+  const fqn = resolved.startsWith('@') ? resolved : typeName
+  if (!fqn.startsWith('@')) return null
+  const parts = fqn.slice(1).split('/')
+  return schema.schema.find((s) => s.namespace === parts[0] && s.name === parts[1] && s.fields)
+}
+
+function toSwiftLiteral(value, type, schema) {
   if (type === 'uint') return String(value)
   if (type === 'bool') return value ? 'true' : 'false'
   if (type === 'string') return JSON.stringify(value)
@@ -53,6 +61,19 @@ function toSwiftLiteral(value, type) {
     const bytes = value.data || []
     if (bytes.length === 0) return 'Data()'
     return `Data([${bytes.join(', ')}])`
+  }
+  if (schema && type.startsWith('@')) {
+    const entry = resolveStructEntry(schema, type)
+    if (entry) {
+      const typeName = toSwiftTypeName(entry.name)
+      const args = entry.fields
+        .map((f) => {
+          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(value[f.name], f.type, schema)}`
+          return `${f.name}: ${toSwiftLiteral(value[f.name], f.type, schema)}`
+        })
+        .join(', ')
+      return `${typeName}(${args})`
+    }
   }
   throw new Error(`Unsupported type for Swift literal: ${type}`)
 }
@@ -65,10 +86,13 @@ function getSwiftTypeName(type) {
   throw new Error(`Unsupported type: ${type}`)
 }
 
-function toSwiftArrayLiteral(values, elementType) {
-  if (values.length === 0) return `[${getSwiftTypeName(elementType)}]()`
-  const items = values.map((v) => toSwiftLiteral(v, elementType))
-  return `[${items.join(', ')}] as [${getSwiftTypeName(elementType)}]`
+function toSwiftArrayLiteral(values, elementType, schema) {
+  const typeName = SUPPORTED_PRIMITIVE_TYPES.has(elementType)
+    ? getSwiftTypeName(elementType)
+    : toSwiftTypeName(resolveStructEntry(schema, elementType).name)
+  if (values.length === 0) return `[${typeName}]()`
+  const items = values.map((v) => toSwiftLiteral(v, elementType, schema))
+  return `[${items.join(', ')}] as [${typeName}]`
 }
 
 function toSwiftMessageLiteral(value, type) {
@@ -77,19 +101,63 @@ function toSwiftMessageLiteral(value, type) {
     const bytes = value.data || []
     return `[${bytes.join(', ')}]`
   }
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value)
   return String(value)
 }
 
+// Generate assertion lines for a decoded value, recursing into struct fields
+function generateAssertions(path, value, type, schema) {
+  const resolved = resolveAliasType(schema, type)
+  const entry = resolveStructEntry(schema, type)
+  if (entry) {
+    const assertions = []
+    for (const f of entry.fields) {
+      if (f.array) {
+        const elemType = resolveAliasType(schema, f.type)
+        assertions.push(
+          `precondition(${path}.${f.name}.count == ${value[f.name].length}, "${path}.${f.name} count: expected ${value[f.name].length}, got \\(${path}.${f.name}.count)")`
+        )
+        for (let j = 0; j < value[f.name].length; j++) {
+          assertions.push(
+            ...generateAssertions(`${path}.${f.name}[${j}]`, value[f.name][j], elemType, schema)
+          )
+        }
+      } else {
+        assertions.push(...generateAssertions(`${path}.${f.name}`, value[f.name], f.type, schema))
+      }
+    }
+    return assertions
+  }
+  const actualType = SUPPORTED_PRIMITIVE_TYPES.has(resolved) ? resolved : type
+  return [
+    `precondition(${path} == ${toSwiftLiteral(value, actualType, schema)}, "${path}: expected ${toSwiftMessageLiteral(value, actualType)}, got \\(${path})")`
+  ]
+}
+
 function fixtureSupported(schema) {
+  // Build a map of struct FQNs defined in this schema
+  const structsByFqn = new Map()
+  for (const entry of schema.schema) {
+    if (entry.fields) structsByFqn.set(`@${entry.namespace}/${entry.name}`, entry)
+  }
+
+  function isTypeSupported(typeName) {
+    if (SUPPORTED_PRIMITIVE_TYPES.has(typeName)) return true
+    const resolved = resolveAliasType(schema, typeName)
+    if (SUPPORTED_PRIMITIVE_TYPES.has(resolved)) return true
+    const structEntry = structsByFqn.get(typeName) || structsByFqn.get(resolved)
+    if (structEntry) return isStructSupported(structEntry)
+    return false
+  }
+
+  function isStructSupported(entry) {
+    return entry.fields.every((f) => isTypeSupported(f.type) && f.required)
+  }
+
   return schema.schema.every((entry) => {
-    if (entry.alias) return SUPPORTED_TYPES.has(entry.alias)
-    if (entry.array) {
-      const elemType = resolveAliasType(schema, entry.type)
-      return SUPPORTED_TYPES.has(elemType)
-    }
-    if (entry.fields) {
-      return entry.fields.every((f) => SUPPORTED_TYPES.has(f.type) && f.required)
-    }
+    if (entry.alias) return isTypeSupported(entry.alias)
+    if (entry.array) return isTypeSupported(entry.type)
+    if (entry.fields) return isStructSupported(entry)
     return false
   })
 }
@@ -113,7 +181,8 @@ function makeRegister(schema) {
           fields: entry.fields.map((f) => ({
             name: f.name,
             type: f.type,
-            required: f.required || false
+            required: f.required || false,
+            array: f.array || false
           }))
         })
       }
@@ -151,15 +220,13 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
     if (primary.array) {
       const instanceName = toSwiftInstanceName(primary.name)
       const elemType = resolveAliasType(schema, primary.type)
-      const literal = toSwiftArrayLiteral(value, elemType)
+      const literal = toSwiftArrayLiteral(value, elemType, schema)
 
       const assertions = [
         `precondition(decoded.count == ${value.length}, "expected count ${value.length}, got \\(decoded.count)")`
       ]
       for (let j = 0; j < value.length; j++) {
-        assertions.push(
-          `precondition(decoded[${j}] == ${toSwiftLiteral(value[j], elemType)}, "element ${j}: expected ${toSwiftMessageLiteral(value[j], elemType)}, got \\(decoded[${j}])")`
-        )
+        assertions.push(...generateAssertions(`decoded[${j}]`, value[j], elemType, schema))
       }
 
       cases.push({
@@ -177,13 +244,28 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
       const instanceName = toSwiftInstanceName(primary.name)
 
       const args = primary.fields
-        .map((f) => `${f.name}: ${toSwiftLiteral(value[f.name], f.type)}`)
+        .map((f) => {
+          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(value[f.name], f.type, schema)}`
+          return `${f.name}: ${toSwiftLiteral(value[f.name], f.type, schema)}`
+        })
         .join(', ')
 
-      const assertions = primary.fields.map(
-        (f) =>
-          `precondition(decoded.${f.name} == ${toSwiftLiteral(value[f.name], f.type)}, "field ${f.name}: expected ${toSwiftMessageLiteral(value[f.name], f.type)}, got \\(decoded.${f.name})")`
-      )
+      const assertions = []
+      for (const f of primary.fields) {
+        if (f.array) {
+          const elemType = resolveAliasType(schema, f.type)
+          assertions.push(
+            `precondition(decoded.${f.name}.count == ${value[f.name].length}, "${f.name} count: expected ${value[f.name].length}, got \\(decoded.${f.name}.count)")`
+          )
+          for (let j = 0; j < value[f.name].length; j++) {
+            assertions.push(
+              ...generateAssertions(`decoded.${f.name}[${j}]`, value[f.name][j], elemType, schema)
+            )
+          }
+        } else {
+          assertions.push(...generateAssertions(`decoded.${f.name}`, value[f.name], f.type, schema))
+        }
+      }
 
       cases.push({
         type: `@${primary.namespace}/${primary.name}`,

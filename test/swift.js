@@ -59,6 +59,108 @@ test('swift: toDisk writes Schema.swift', { skip: isWindows }, async (t) => {
   )
 })
 
+// Nested struct test: struct field referencing another struct
+test('swift: nested struct roundtrip', { skip: isWindows }, (t) => {
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('test')
+  ns.register({
+    name: 'inner',
+    fields: [
+      { name: 'x', type: 'uint', required: true },
+      { name: 'y', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'outer',
+    fields: [
+      { name: 'label', type: 'string', required: true },
+      { name: 'point', type: '@test/inner', required: true }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      'let value = Outer(label: "hello", point: Inner(x: 10, y: 20))',
+      'let buffer = encode(outer, value)',
+      'let decoded = try! decode(outer, buffer)',
+      'precondition(decoded.label == "hello", "label mismatch")',
+      'precondition(decoded.point.x == 10, "point.x mismatch")',
+      'precondition(decoded.point.y == 20, "point.y mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `nested struct failed:\n${result.stderr}`)
+})
+
+// Array field test: struct with an array-typed field
+test('swift: array field roundtrip', { skip: isWindows }, (t) => {
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('test')
+  ns.register({
+    name: 'collection',
+    fields: [
+      { name: 'name', type: 'string', required: true },
+      { name: 'values', type: 'uint', required: true, array: true }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      'let value = Collection(name: "nums", values: [1, 2, 3])',
+      'let buffer = encode(collection, value)',
+      'let decoded = try! decode(collection, buffer)',
+      'precondition(decoded.name == "nums", "name mismatch")',
+      'precondition(decoded.values.count == 3, "values count mismatch")',
+      'precondition(decoded.values[0] == 1, "values[0] mismatch")',
+      'precondition(decoded.values[1] == 2, "values[1] mismatch")',
+      'precondition(decoded.values[2] == 3, "values[2] mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `array field failed:\n${result.stderr}`)
+})
+
+// Array-of-structs test: array field containing struct-typed elements
+test('swift: array of structs roundtrip', { skip: isWindows }, (t) => {
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('test')
+  ns.register({
+    name: 'point',
+    fields: [
+      { name: 'x', type: 'uint', required: true },
+      { name: 'y', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'shape',
+    fields: [
+      { name: 'name', type: 'string', required: true },
+      { name: 'points', type: '@test/point', required: true, array: true }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      'let value = Shape(name: "triangle", points: [Point(x: 0, y: 0), Point(x: 1, y: 0), Point(x: 0, y: 1)])',
+      'let buffer = encode(shape, value)',
+      'let decoded = try! decode(shape, buffer)',
+      'precondition(decoded.name == "triangle", "name mismatch")',
+      'precondition(decoded.points.count == 3, "points count mismatch")',
+      'precondition(decoded.points[0].x == 0, "points[0].x mismatch")',
+      'precondition(decoded.points[0].y == 0, "points[0].y mismatch")',
+      'precondition(decoded.points[1].x == 1, "points[1].x mismatch")',
+      'precondition(decoded.points[1].y == 0, "points[1].y mismatch")',
+      'precondition(decoded.points[2].x == 0, "points[2].x mismatch")',
+      'precondition(decoded.points[2].y == 1, "points[2].y mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `array of structs failed:\n${result.stderr}`)
+})
+
 // Version evolution tests: these verify the Swift codegen handles schema
 // changes correctly and are not representable as static fixtures.
 
