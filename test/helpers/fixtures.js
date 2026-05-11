@@ -19,7 +19,18 @@ const path = require('path')
 
 const FIXTURES_DIR = path.resolve(require.resolve('hyperschema-test'), '../fixtures')
 
-const SUPPORTED_PRIMITIVE_TYPES = new Set(['uint', 'bool', 'string', 'buffer'])
+const SUPPORTED_PRIMITIVE_TYPES = new Set([
+  'uint',
+  'uint8',
+  'uint16',
+  'uint32',
+  'int',
+  'float32',
+  'float64',
+  'bool',
+  'string',
+  'buffer'
+])
 
 function toSwiftTypeName(name) {
   return name
@@ -55,6 +66,12 @@ function resolveStructEntry(schema, typeName) {
 
 function toSwiftLiteral(value, type, schema) {
   if (type === 'uint') return String(value)
+  if (type === 'uint8') return String(value)
+  if (type === 'uint16') return String(value)
+  if (type === 'uint32') return String(value)
+  if (type === 'int') return String(value)
+  if (type === 'float32') return String(value)
+  if (type === 'float64') return String(value)
   if (type === 'bool') return value ? 'true' : 'false'
   if (type === 'string') return JSON.stringify(value)
   if (type === 'buffer') {
@@ -80,6 +97,12 @@ function toSwiftLiteral(value, type, schema) {
 
 function getSwiftTypeName(type) {
   if (type === 'uint') return 'UInt'
+  if (type === 'uint8') return 'UInt8'
+  if (type === 'uint16') return 'UInt16'
+  if (type === 'uint32') return 'UInt32'
+  if (type === 'int') return 'Int'
+  if (type === 'float32') return 'Float'
+  if (type === 'float64') return 'Double'
   if (type === 'bool') return 'Bool'
   if (type === 'string') return 'String'
   if (type === 'buffer') return 'Data'
