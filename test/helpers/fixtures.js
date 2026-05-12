@@ -95,6 +95,17 @@ function toSwiftLiteral(value, type, schema) {
     return `Data([${bytes.join(', ')}])`
   }
   if (schema && type.startsWith('@')) {
+    const enumEntry = resolveEnumEntry(schema, type)
+    if (enumEntry) {
+      const offset = enumEntry.offset || 0
+      let key
+      if (enumEntry.strings) {
+        key = value // value is the key string
+      } else {
+        key = enumEntry.enum[value - offset].key // value is the ordinal
+      }
+      return `.${key}`
+    }
     const entry = resolveStructEntry(schema, type)
     if (entry) {
       const typeName = toSwiftTypeName(entry.name)
@@ -149,6 +160,11 @@ function toSwiftMessageLiteral(value, type) {
 // Generate assertion lines for a decoded value, recursing into struct fields
 function generateAssertions(path, value, type, schema) {
   const resolved = resolveAliasType(schema, type)
+  // Enum types: assert with .caseName literal
+  if (schema && resolveEnumEntry(schema, type)) {
+    const literal = toSwiftLiteral(value, type, schema)
+    return [`precondition(${path} == ${literal}, "${path}: expected ${literal}, got \\(${path})")`]
+  }
   const entry = resolveStructEntry(schema, type)
   if (entry) {
     const assertions = []
@@ -175,17 +191,27 @@ function generateAssertions(path, value, type, schema) {
   ]
 }
 
+function resolveEnumEntry(schema, typeName) {
+  const parts = typeName.startsWith('@') ? typeName.slice(1).split('/') : null
+  if (!parts) return null
+  return (
+    schema.schema.find((s) => s.namespace === parts[0] && s.name === parts[1] && s.enum) || null
+  )
+}
+
 function fixtureSupported(schema) {
-  // Build a map of struct FQNs defined in this schema
   const structsByFqn = new Map()
+  const enumsByFqn = new Map()
   for (const entry of schema.schema) {
     if (entry.fields) structsByFqn.set(`@${entry.namespace}/${entry.name}`, entry)
+    if (entry.enum) enumsByFqn.set(`@${entry.namespace}/${entry.name}`, entry)
   }
 
   function isTypeSupported(typeName) {
     if (SUPPORTED_PRIMITIVE_TYPES.has(typeName)) return true
     const resolved = resolveAliasType(schema, typeName)
     if (SUPPORTED_PRIMITIVE_TYPES.has(resolved)) return true
+    if (enumsByFqn.has(typeName) || enumsByFqn.has(resolved)) return true
     const structEntry = structsByFqn.get(typeName) || structsByFqn.get(resolved)
     if (structEntry) return isStructSupported(structEntry)
     return false
@@ -202,6 +228,7 @@ function fixtureSupported(schema) {
   return schema.schema.every((entry) => {
     if (entry.alias) return isTypeSupported(entry.alias)
     if (entry.array) return isTypeSupported(entry.type)
+    if (entry.enum) return true
     if (entry.fields) return isStructSupported(entry)
     return false
   })
@@ -219,6 +246,13 @@ function makeRegister(schema) {
         ns.register({ name: entry.name, alias: entry.alias })
       } else if (entry.array) {
         ns.register({ name: entry.name, array: true, type: entry.type })
+      } else if (entry.enum) {
+        ns.register({
+          name: entry.name,
+          enum: entry.enum,
+          offset: entry.offset || 0,
+          strings: entry.strings || false
+        })
       } else {
         ns.register({
           name: entry.name,
