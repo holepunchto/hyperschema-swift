@@ -19,7 +19,7 @@ for (const fixture of fixtures) {
     fixture.register(schema)
 
     // Batch all cases into a single swift run (one compile per fixture)
-    const lines = []
+    const lines = ['import Foundation']
     for (const kase of swiftCases) {
       lines.push('do {')
       lines.push(`  let value = ${kase.swift.encode}`)

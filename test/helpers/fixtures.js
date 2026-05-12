@@ -64,7 +64,22 @@ function resolveStructEntry(schema, typeName) {
   return schema.schema.find((s) => s.namespace === parts[0] && s.name === parts[1] && s.fields)
 }
 
+// JS hyperschema treats falsy values (0, "", empty buffer) as absent for optional
+// fields — the same encoding as null. Normalize so assertions and encode expressions
+// match what the canonical bytes actually decode to.
+// JS hyperschema treats falsy primitives (0, "") as absent for optional fields,
+// the same as null. Buffer objects (even empty ones) are truthy in JS and remain present.
+function normOptional(value, type, schema) {
+  if (value === null) return null
+  if (type === 'bool') return value
+  const resolved = schema ? resolveAliasType(schema, type) : type
+  if (resolved === 'string') return value === '' ? null : value
+  if (typeof value === 'number') return value === 0 ? null : value
+  return value
+}
+
 function toSwiftLiteral(value, type, schema) {
+  if (value === null) return type === 'bool' ? 'false' : 'nil'
   if (type === 'uint') return String(value)
   if (type === 'uint8') return String(value)
   if (type === 'uint16') return String(value)
@@ -91,6 +106,8 @@ function toSwiftLiteral(value, type, schema) {
         .join(', ')
       return `${typeName}(${args})`
     }
+    const resolved = resolveAliasType(schema, type)
+    if (resolved !== type) return toSwiftLiteral(value, resolved, schema)
   }
   throw new Error(`Unsupported type for Swift literal: ${type}`)
 }
@@ -119,6 +136,7 @@ function toSwiftArrayLiteral(values, elementType, schema) {
 }
 
 function toSwiftMessageLiteral(value, type) {
+  if (value === null) return type === 'bool' ? 'false' : 'nil'
   if (type === 'string') return JSON.stringify(value).slice(1, -1)
   if (type === 'buffer') {
     const bytes = value.data || []
@@ -174,7 +192,11 @@ function fixtureSupported(schema) {
   }
 
   function isStructSupported(entry) {
-    return entry.fields.every((f) => isTypeSupported(f.type) && f.required)
+    return entry.fields.every((f) => {
+      const resolved = resolveAliasType(schema, f.type)
+      if (structsByFqn.has(f.type) || structsByFqn.has(resolved)) return false
+      return isTypeSupported(f.type)
+    })
   }
 
   return schema.schema.every((entry) => {
@@ -268,8 +290,9 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
 
       const args = primary.fields
         .map((f) => {
-          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(value[f.name], f.type, schema)}`
-          return `${f.name}: ${toSwiftLiteral(value[f.name], f.type, schema)}`
+          const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(v, f.type, schema)}`
+          return `${f.name}: ${toSwiftLiteral(v, f.type, schema)}`
         })
         .join(', ')
 
@@ -286,7 +309,8 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
             )
           }
         } else {
-          assertions.push(...generateAssertions(`decoded.${f.name}`, value[f.name], f.type, schema))
+          const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+          assertions.push(...generateAssertions(`decoded.${f.name}`, v, f.type, schema))
         }
       }
 
