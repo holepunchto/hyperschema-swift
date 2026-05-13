@@ -29,7 +29,8 @@ const SUPPORTED_PRIMITIVE_TYPES = new Set([
   'float64',
   'bool',
   'string',
-  'buffer'
+  'buffer',
+  'json'
 ])
 
 function toSwiftTypeName(name) {
@@ -72,6 +73,7 @@ function normOptional(value, type, schema) {
   const resolved = schema ? resolveAliasType(schema, type) : type
   if (resolved === 'string') return value === '' ? null : value
   if (typeof value === 'number') return value === 0 ? null : value
+  if (resolved === 'json') return value === 0 || value === false || value === '' ? null : value
   return value
 }
 
@@ -90,6 +92,11 @@ function toSwiftLiteral(value, type, schema) {
     const bytes = value.data || []
     if (bytes.length === 0) return 'Data()'
     return `Data([${bytes.join(', ')}])`
+  }
+  if (type === 'json') {
+    // JSON.stringify always produces valid JSON — try! will never throw here
+    const escaped = JSON.stringify(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    return `try! JSONSerialization.jsonObject(with: Data("${escaped}".utf8), options: .allowFragments)`
   }
   if (schema && type.startsWith('@')) {
     const enumEntry = resolveEnumEntry(schema, type)
@@ -132,6 +139,7 @@ function getSwiftTypeName(type) {
   if (type === 'bool') return 'Bool'
   if (type === 'string') return 'String'
   if (type === 'buffer') return 'Data'
+  if (type === 'json') return 'Any'
   throw new Error(`Unsupported type: ${type}`)
 }
 
@@ -204,6 +212,25 @@ function generateAssertions(path, value, type, schema, isOptional = false) {
       }
     }
     return assertions
+  }
+  if (resolved === 'json') {
+    if (value === null) return [`precondition(${path} == nil, "${msgPath}: expected nil")`]
+    if (typeof value === 'string') {
+      // Start from JSON.stringify to handle \n, \t, \r and other control characters
+      const escaped = JSON.stringify(value).slice(1, -1).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      return [`precondition((${path} as? String) == "${escaped}", "${msgPath}: expected string")`]
+    }
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return [
+        `precondition((${path} as? NSNumber)?.intValue == ${value}, "${msgPath}: expected ${value}")`
+      ]
+    }
+    if (typeof value === 'boolean') {
+      return [
+        `precondition((${path} as? Bool) == ${value ? 'true' : 'false'}, "${msgPath}: expected ${value}")`
+      ]
+    }
+    return [`precondition(${path} != nil, "${msgPath}: expected non-nil")`]
   }
   const actualType = SUPPORTED_PRIMITIVE_TYPES.has(resolved) ? resolved : type
   return [
