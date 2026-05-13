@@ -433,9 +433,7 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
         if (f.array) {
           const elemType = resolveAliasType(schema, f.type)
           if (v === null) {
-            assertions.push(
-              `precondition(decoded.${f.name} == nil, "${f.name}: expected nil")`
-            )
+            assertions.push(`precondition(decoded.${f.name} == nil, "${f.name}: expected nil")`)
           } else {
             assertions.push(
               `precondition(decoded.${f.name}?.count == ${v.length}, "${f.name} count: expected ${v.length}, got \\(String(describing: decoded.${f.name}?.count))")`
