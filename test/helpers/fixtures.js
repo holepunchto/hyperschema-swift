@@ -158,12 +158,20 @@ function toSwiftMessageLiteral(value, type) {
 }
 
 // Generate assertion lines for a decoded value, recursing into struct fields
+// Escape a path for embedding inside a Swift string literal (not inside \(...)).
+function swiftStringEscape(s) {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
 function generateAssertions(path, value, type, schema) {
   const resolved = resolveAliasType(schema, type)
+  const msgPath = swiftStringEscape(path)
   // Enum types: assert with .caseName literal
   if (schema && resolveEnumEntry(schema, type)) {
     const literal = toSwiftLiteral(value, type, schema)
-    return [`precondition(${path} == ${literal}, "${path}: expected ${literal}, got \\(${path})")`]
+    return [
+      `precondition(${path} == ${literal}, "${msgPath}: expected ${literal}, got \\(${path})")`
+    ]
   }
   const entry = resolveStructEntry(schema, type)
   if (entry) {
@@ -171,8 +179,9 @@ function generateAssertions(path, value, type, schema) {
     for (const f of entry.fields) {
       if (f.array) {
         const elemType = resolveAliasType(schema, f.type)
+        const fieldMsgPath = swiftStringEscape(`${path}.${f.name}`)
         assertions.push(
-          `precondition(${path}.${f.name}.count == ${value[f.name].length}, "${path}.${f.name} count: expected ${value[f.name].length}, got \\(${path}.${f.name}.count)")`
+          `precondition(${path}.${f.name}.count == ${value[f.name].length}, "${fieldMsgPath} count: expected ${value[f.name].length}, got \\(${path}.${f.name}.count)")`
         )
         for (let j = 0; j < value[f.name].length; j++) {
           assertions.push(
@@ -187,8 +196,51 @@ function generateAssertions(path, value, type, schema) {
   }
   const actualType = SUPPORTED_PRIMITIVE_TYPES.has(resolved) ? resolved : type
   return [
-    `precondition(${path} == ${toSwiftLiteral(value, actualType, schema)}, "${path}: expected ${toSwiftMessageLiteral(value, actualType)}, got \\(${path})")`
+    `precondition(${path} == ${toSwiftLiteral(value, actualType, schema)}, "${msgPath}: expected ${toSwiftMessageLiteral(value, actualType)}, got \\(${path})")`
   ]
+}
+
+function getSchemaSwiftTypeName(typeName, schema) {
+  if (SUPPORTED_PRIMITIVE_TYPES.has(typeName)) return getSwiftTypeName(typeName)
+  const resolved = resolveAliasType(schema, typeName)
+  if (SUPPORTED_PRIMITIVE_TYPES.has(resolved)) return getSwiftTypeName(resolved)
+  const enumEntry = resolveEnumEntry(schema, typeName)
+  if (enumEntry) return toSwiftTypeName(enumEntry.name)
+  const structEntry = resolveStructEntry(schema, typeName)
+  if (structEntry) return toSwiftTypeName(structEntry.name)
+  throw new Error(`Cannot get Swift type name for: ${typeName}`)
+}
+
+function toSwiftRecordLiteral(value, valueType, schema) {
+  const swiftValueType = getSchemaSwiftTypeName(valueType, schema)
+  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+  if (entries.length === 0) return `[String: ${swiftValueType}]()`
+  const items = entries.map(
+    ([k, v]) => `${JSON.stringify(k)}: ${toSwiftLiteral(v, valueType, schema)}`
+  )
+  return `[${items.join(', ')}] as [String: ${swiftValueType}]`
+}
+
+function generateRecordAssertions(path, value, valueType, schema) {
+  const entries = Object.entries(value)
+  const assertions = [
+    `precondition(${path}.count == ${entries.length}, "count: expected ${entries.length}, got \\(${path}.count)")`
+  ]
+  const structEntry = resolveStructEntry(schema, valueType)
+  for (const [k, v] of entries) {
+    const entryPath = `${path}[${JSON.stringify(k)}]`
+    if (structEntry) {
+      assertions.push(
+        `precondition(${entryPath} != nil, "${swiftStringEscape(entryPath)}: expected non-nil")`
+      )
+      for (const f of structEntry.fields) {
+        assertions.push(...generateAssertions(`${entryPath}!.${f.name}`, v[f.name], f.type, schema))
+      }
+    } else {
+      assertions.push(...generateAssertions(entryPath, v, valueType, schema))
+    }
+  }
+  return assertions
 }
 
 function resolveEnumEntry(schema, typeName) {
@@ -229,6 +281,7 @@ function fixtureSupported(schema) {
     if (entry.alias) return isTypeSupported(entry.alias)
     if (entry.array) return isTypeSupported(entry.type)
     if (entry.enum) return true
+    if (entry.record) return isTypeSupported(entry.value)
     if (entry.fields) return isStructSupported(entry)
     return false
   })
@@ -253,6 +306,8 @@ function makeRegister(schema) {
           offset: entry.offset || 0,
           strings: entry.strings || false
         })
+      } else if (entry.record) {
+        ns.register({ name: entry.name, record: true, key: entry.key, value: entry.value })
       } else {
         ns.register({
           name: entry.name,
@@ -296,7 +351,19 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
     const value = testData.values[i]
     const encoded = testData.encoded[i]
 
-    if (primary.array) {
+    if (primary.record) {
+      const instanceName = toSwiftInstanceName(primary.name)
+      cases.push({
+        type: `@${primary.namespace}/${primary.name}`,
+        value,
+        encoded,
+        swift: {
+          codec: instanceName,
+          encode: toSwiftRecordLiteral(value, primary.value, schema),
+          assertions: generateRecordAssertions('decoded', value, primary.value, schema)
+        }
+      })
+    } else if (primary.array) {
       const instanceName = toSwiftInstanceName(primary.name)
       const elemType = resolveAliasType(schema, primary.type)
       const literal = toSwiftArrayLiteral(value, elemType, schema)
