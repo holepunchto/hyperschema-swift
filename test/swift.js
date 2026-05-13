@@ -165,9 +165,28 @@ test('swift: array of structs roundtrip', { skip: isWindows }, (t) => {
 test('swift: versioned type roundtrip', { skip: isWindows }, (t) => {
   const schema = SwiftHyperschema.from(null)
   const ns = schema.namespace('test')
-  ns.register({ name: 'msg-v0', fields: [{ name: 'version', type: 'uint', required: true }, { name: 'text', type: 'string', required: true }] })
-  ns.register({ name: 'msg-v1', fields: [{ name: 'version', type: 'uint', required: true }, { name: 'text', type: 'string', required: true }, { name: 'priority', type: 'uint', required: true }] })
-  ns.register({ name: 'message', versions: [{ version: 0, type: '@test/msg-v0' }, { version: 1, type: '@test/msg-v1' }] })
+  ns.register({
+    name: 'msg-v0',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'text', type: 'string', required: true }
+    ]
+  })
+  ns.register({
+    name: 'msg-v1',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'text', type: 'string', required: true },
+      { name: 'priority', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'message',
+    versions: [
+      { version: 0, type: '@test/msg-v0' },
+      { version: 1, type: '@test/msg-v1' }
+    ]
+  })
 
   const result = runSwift(
     schema,
@@ -193,9 +212,27 @@ test('swift: versioned type sparse range dispatch', { skip: isWindows }, (t) => 
   // Versions declared at 0 and 3; wire values 1 and 2 must decode as v3 (the upper-bound entry)
   const schema = SwiftHyperschema.from(null)
   const ns = schema.namespace('test')
-  ns.register({ name: 'ev-v0', fields: [{ name: 'version', type: 'uint', required: true }, { name: 'code', type: 'uint', required: true }] })
-  ns.register({ name: 'ev-v3', fields: [{ name: 'version', type: 'uint', required: true }, { name: 'code', type: 'uint', required: true }] })
-  ns.register({ name: 'event', versions: [{ version: 0, type: '@test/ev-v0' }, { version: 3, type: '@test/ev-v3' }] })
+  ns.register({
+    name: 'ev-v0',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'code', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'ev-v3',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'code', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'event',
+    versions: [
+      { version: 0, type: '@test/ev-v0' },
+      { version: 3, type: '@test/ev-v3' }
+    ]
+  })
 
   const result = runSwift(
     schema,

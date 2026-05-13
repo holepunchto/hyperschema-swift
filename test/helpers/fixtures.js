@@ -471,7 +471,9 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
       }
 
       if (matchedVe === null) {
-        throw new Error(`No version range covers value.version=${value.version} for ${primary.name}`)
+        throw new Error(
+          `No version range covers value.version=${value.version} for ${primary.name}`
+        )
       }
 
       const caseName = `v${matchedVe.version}`
