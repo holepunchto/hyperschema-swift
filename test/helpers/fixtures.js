@@ -218,7 +218,9 @@ function generateAssertions(path, value, type, schema, isOptional = false) {
       return [`precondition((${path} as? String) == "${escaped}", "${msgPath}: expected string")`]
     }
     if (typeof value === 'number' && Number.isInteger(value)) {
-      return [`precondition((${path} as? NSNumber)?.intValue == ${value}, "${msgPath}: expected ${value}")`]
+      return [
+        `precondition((${path} as? NSNumber)?.intValue == ${value}, "${msgPath}: expected ${value}")`
+      ]
     }
     if (typeof value === 'boolean') {
       return [
