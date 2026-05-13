@@ -73,6 +73,7 @@ function normOptional(value, type, schema) {
   const resolved = schema ? resolveAliasType(schema, type) : type
   if (resolved === 'string') return value === '' ? null : value
   if (typeof value === 'number') return value === 0 ? null : value
+  if (resolved === 'json') return value === 0 || value === false || value === '' ? null : value
   return value
 }
 
@@ -93,6 +94,7 @@ function toSwiftLiteral(value, type, schema) {
     return `Data([${bytes.join(', ')}])`
   }
   if (type === 'json') {
+    // JSON.stringify always produces valid JSON — try! will never throw here
     const escaped = JSON.stringify(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     return `try! JSONSerialization.jsonObject(with: Data("${escaped}".utf8), options: .allowFragments)`
   }
@@ -214,7 +216,8 @@ function generateAssertions(path, value, type, schema, isOptional = false) {
   if (resolved === 'json') {
     if (value === null) return [`precondition(${path} == nil, "${msgPath}: expected nil")`]
     if (typeof value === 'string') {
-      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      // Start from JSON.stringify to handle \n, \t, \r and other control characters
+      const escaped = JSON.stringify(value).slice(1, -1).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       return [`precondition((${path} as? String) == "${escaped}", "${msgPath}: expected string")`]
     }
     if (typeof value === 'number' && Number.isInteger(value)) {
