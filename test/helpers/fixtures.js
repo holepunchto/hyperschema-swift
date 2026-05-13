@@ -301,6 +301,12 @@ function fixtureSupported(schema) {
     if (entry.enum) return true
     if (entry.record) return isTypeSupported(entry.value)
     if (entry.fields) return isStructSupported(entry)
+    if (entry.versions) {
+      return entry.versions.every((v) => {
+        const structEntry = structsByFqn.get(v.type)
+        return structEntry ? isStructSupported(structEntry) : false
+      })
+    }
     return false
   })
 }
@@ -326,6 +332,11 @@ function makeRegister(schema) {
         })
       } else if (entry.record) {
         ns.register({ name: entry.name, record: true, key: entry.key, value: entry.value })
+      } else if (entry.versions) {
+        ns.register({
+          name: entry.name,
+          versions: entry.versions.map((v) => ({ version: v.version, type: v.type }))
+        })
       } else {
         ns.register({
           name: entry.name,
@@ -441,6 +452,55 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
         swift: {
           codec: instanceName,
           encode: `${typeName}(${args})`,
+          assertions
+        }
+      })
+    } else if (primary.versions) {
+      const typeName = toSwiftTypeName(primary.name)
+      const instanceName = toSwiftInstanceName(primary.name)
+
+      // Find the versions entry whose range covers value.version
+      let matchedVe = null
+      let prev = -1
+      for (const ve of primary.versions) {
+        if (value.version >= prev + 1 && value.version <= ve.version) {
+          matchedVe = ve
+          break
+        }
+        prev = ve.version
+      }
+
+      const caseName = `v${matchedVe.version}`
+      const fqnParts = matchedVe.type.slice(1).split('/')
+      const subEntry = schema.schema.find(
+        (e) => e.namespace === fqnParts[0] && e.name === fqnParts[1]
+      )
+      const subTypeName = toSwiftTypeName(subEntry.name)
+
+      const args = subEntry.fields
+        .map((f) => {
+          const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(v, f.type, schema)}`
+          return `${f.name}: ${toSwiftLiteral(v, f.type, schema)}`
+        })
+        .join(', ')
+
+      const assertions = [
+        `guard case .${caseName}(let _m) = decoded else { fatalError("expected ${typeName}.${caseName}") }`
+      ]
+      for (const f of subEntry.fields) {
+        const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+        const isOptional = !f.required
+        assertions.push(...generateAssertions(`_m.${f.name}`, v, f.type, schema, isOptional))
+      }
+
+      cases.push({
+        type: `@${primary.namespace}/${primary.name}`,
+        value,
+        encoded,
+        swift: {
+          codec: instanceName,
+          encode: `${typeName}.${caseName}(${subTypeName}(${args}))`,
           assertions
         }
       })
