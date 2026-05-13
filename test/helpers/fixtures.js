@@ -111,8 +111,9 @@ function toSwiftLiteral(value, type, schema) {
       const typeName = toSwiftTypeName(entry.name)
       const args = entry.fields
         .map((f) => {
-          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(value[f.name], f.type, schema)}`
-          return `${f.name}: ${toSwiftLiteral(value[f.name], f.type, schema)}`
+          const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+          if (f.array) return `${f.name}: ${toSwiftArrayLiteral(v, f.type, schema)}`
+          return `${f.name}: ${toSwiftLiteral(v, f.type, schema)}`
         })
         .join(', ')
       return `${typeName}(${args})`
@@ -163,7 +164,7 @@ function swiftStringEscape(s) {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function generateAssertions(path, value, type, schema) {
+function generateAssertions(path, value, type, schema, isOptional = false) {
   const resolved = resolveAliasType(schema, type)
   const msgPath = swiftStringEscape(path)
   // Enum types: assert with .caseName literal
@@ -175,21 +176,32 @@ function generateAssertions(path, value, type, schema) {
   }
   const entry = resolveStructEntry(schema, type)
   if (entry) {
+    if (value === null) {
+      return [`precondition(${path} == nil, "${msgPath}: expected nil")`]
+    }
     const assertions = []
+    if (isOptional) {
+      assertions.push(`precondition(${path} != nil, "${msgPath}: expected non-nil")`)
+    }
+    const accessPath = isOptional ? `${path}!` : path
     for (const f of entry.fields) {
+      const fv = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
+      const isFieldOptional = !f.required
       if (f.array) {
         const elemType = resolveAliasType(schema, f.type)
-        const fieldMsgPath = swiftStringEscape(`${path}.${f.name}`)
+        const fieldMsgPath = swiftStringEscape(`${accessPath}.${f.name}`)
         assertions.push(
-          `precondition(${path}.${f.name}.count == ${value[f.name].length}, "${fieldMsgPath} count: expected ${value[f.name].length}, got \\(${path}.${f.name}.count)")`
+          `precondition(${accessPath}.${f.name}.count == ${fv.length}, "${fieldMsgPath} count: expected ${fv.length}, got \\(${accessPath}.${f.name}.count)")`
         )
-        for (let j = 0; j < value[f.name].length; j++) {
+        for (let j = 0; j < fv.length; j++) {
           assertions.push(
-            ...generateAssertions(`${path}.${f.name}[${j}]`, value[f.name][j], elemType, schema)
+            ...generateAssertions(`${accessPath}.${f.name}[${j}]`, fv[j], elemType, schema)
           )
         }
       } else {
-        assertions.push(...generateAssertions(`${path}.${f.name}`, value[f.name], f.type, schema))
+        assertions.push(
+          ...generateAssertions(`${accessPath}.${f.name}`, fv, f.type, schema, isFieldOptional)
+        )
       }
     }
     return assertions
@@ -271,8 +283,10 @@ function fixtureSupported(schema) {
 
   function isStructSupported(entry) {
     return entry.fields.every((f) => {
+      if (f.inline) return false
       const resolved = resolveAliasType(schema, f.type)
-      if (structsByFqn.has(f.type) || structsByFqn.has(resolved)) return false
+      const structEntry = structsByFqn.get(f.type) || structsByFqn.get(resolved)
+      if (structEntry) return isStructSupported(structEntry)
       return isTypeSupported(f.type)
     })
   }
@@ -411,7 +425,8 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
           }
         } else {
           const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
-          assertions.push(...generateAssertions(`decoded.${f.name}`, v, f.type, schema))
+          const isOptional = !f.required
+          assertions.push(...generateAssertions(`decoded.${f.name}`, v, f.type, schema, isOptional))
         }
       }
 
