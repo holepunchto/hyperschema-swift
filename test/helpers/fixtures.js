@@ -470,6 +470,10 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
         prev = ve.version
       }
 
+      if (matchedVe === null) {
+        throw new Error(`No version range covers value.version=${value.version} for ${primary.name}`)
+      }
+
       const caseName = `v${matchedVe.version}`
       const fqnParts = matchedVe.type.slice(1).split('/')
       const subEntry = schema.schema.find(
