@@ -29,7 +29,8 @@ const SUPPORTED_PRIMITIVE_TYPES = new Set([
   'float64',
   'bool',
   'string',
-  'buffer'
+  'buffer',
+  'json'
 ])
 
 function toSwiftTypeName(name) {
@@ -91,6 +92,10 @@ function toSwiftLiteral(value, type, schema) {
     if (bytes.length === 0) return 'Data()'
     return `Data([${bytes.join(', ')}])`
   }
+  if (type === 'json') {
+    const escaped = JSON.stringify(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    return `try! JSONSerialization.jsonObject(with: Data("${escaped}".utf8), options: .allowFragments)`
+  }
   if (schema && type.startsWith('@')) {
     const enumEntry = resolveEnumEntry(schema, type)
     if (enumEntry) {
@@ -132,6 +137,7 @@ function getSwiftTypeName(type) {
   if (type === 'bool') return 'Bool'
   if (type === 'string') return 'String'
   if (type === 'buffer') return 'Data'
+  if (type === 'json') return 'Any'
   throw new Error(`Unsupported type: ${type}`)
 }
 
@@ -204,6 +210,22 @@ function generateAssertions(path, value, type, schema, isOptional = false) {
       }
     }
     return assertions
+  }
+  if (resolved === 'json') {
+    if (value === null) return [`precondition(${path} == nil, "${msgPath}: expected nil")`]
+    if (typeof value === 'string') {
+      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      return [`precondition((${path} as? String) == "${escaped}", "${msgPath}: expected string")`]
+    }
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return [`precondition((${path} as? NSNumber)?.intValue == ${value}, "${msgPath}: expected ${value}")`]
+    }
+    if (typeof value === 'boolean') {
+      return [
+        `precondition((${path} as? Bool) == ${value ? 'true' : 'false'}, "${msgPath}: expected ${value}")`
+      ]
+    }
+    return [`precondition(${path} != nil, "${msgPath}: expected non-nil")`]
   }
   const actualType = SUPPORTED_PRIMITIVE_TYPES.has(resolved) ? resolved : type
   return [
