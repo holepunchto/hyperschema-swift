@@ -67,7 +67,7 @@ function resolveStructEntry(schema, typeName) {
 // JS hyperschema treats falsy primitives (0, "") as absent for optional fields,
 // the same encoding as null. Buffer objects (even empty ones) are truthy and remain present.
 function normOptional(value, type, schema) {
-  if (value == null) return null
+  if (value === null || value === undefined) return null
   if (type === 'bool') return value
   const resolved = schema ? resolveAliasType(schema, type) : type
   if (resolved === 'string') return value === '' ? null : value
