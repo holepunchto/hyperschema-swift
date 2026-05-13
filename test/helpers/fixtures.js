@@ -67,7 +67,7 @@ function resolveStructEntry(schema, typeName) {
 // JS hyperschema treats falsy primitives (0, "") as absent for optional fields,
 // the same encoding as null. Buffer objects (even empty ones) are truthy and remain present.
 function normOptional(value, type, schema) {
-  if (value === null) return null
+  if (value === null || value === undefined) return null
   if (type === 'bool') return value
   const resolved = schema ? resolveAliasType(schema, type) : type
   if (resolved === 'string') return value === '' ? null : value
@@ -136,8 +136,10 @@ function getSwiftTypeName(type) {
 }
 
 function toSwiftArrayLiteral(values, elementType, schema) {
-  const typeName = SUPPORTED_PRIMITIVE_TYPES.has(elementType)
-    ? getSwiftTypeName(elementType)
+  if (values === null) return 'nil'
+  const resolvedElementType = resolveAliasType(schema, elementType)
+  const typeName = SUPPORTED_PRIMITIVE_TYPES.has(resolvedElementType)
+    ? getSwiftTypeName(resolvedElementType)
     : toSwiftTypeName(resolveStructEntry(schema, elementType).name)
   if (values.length === 0) return `[${typeName}]()`
   const items = values.map((v) => toSwiftLiteral(v, elementType, schema))
@@ -287,7 +289,6 @@ function fixtureSupported(schema) {
     if (visited.has(entry)) return false
     visited.add(entry)
     return entry.fields.every((f) => {
-      if (f.inline) return false
       const resolved = resolveAliasType(schema, f.type)
       const structEntry = structsByFqn.get(f.type) || structsByFqn.get(resolved)
       if (structEntry) return isStructSupported(structEntry, visited)
@@ -431,13 +432,17 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
         const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
         if (f.array) {
           const elemType = resolveAliasType(schema, f.type)
-          assertions.push(
-            `precondition(decoded.${f.name}.count == ${v.length}, "${f.name} count: expected ${v.length}, got \\(decoded.${f.name}.count)")`
-          )
-          for (let j = 0; j < v.length; j++) {
+          if (v === null) {
+            assertions.push(`precondition(decoded.${f.name} == nil, "${f.name}: expected nil")`)
+          } else {
             assertions.push(
-              ...generateAssertions(`decoded.${f.name}[${j}]`, v[j], elemType, schema)
+              `precondition(decoded.${f.name}?.count == ${v.length}, "${f.name} count: expected ${v.length}, got \\(String(describing: decoded.${f.name}?.count))")`
             )
+            for (let j = 0; j < v.length; j++) {
+              assertions.push(
+                ...generateAssertions(`decoded.${f.name}![${j}]`, v[j], elemType, schema)
+              )
+            }
           }
         } else {
           const isOptional = !f.required
