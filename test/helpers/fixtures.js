@@ -64,11 +64,8 @@ function resolveStructEntry(schema, typeName) {
   return schema.schema.find((s) => s.namespace === parts[0] && s.name === parts[1] && s.fields)
 }
 
-// JS hyperschema treats falsy values (0, "", empty buffer) as absent for optional
-// fields — the same encoding as null. Normalize so assertions and encode expressions
-// match what the canonical bytes actually decode to.
 // JS hyperschema treats falsy primitives (0, "") as absent for optional fields,
-// the same as null. Buffer objects (even empty ones) are truthy in JS and remain present.
+// the same encoding as null. Buffer objects (even empty ones) are truthy and remain present.
 function normOptional(value, type, schema) {
   if (value === null) return null
   if (type === 'bool') return value
@@ -280,6 +277,8 @@ function fixtureSupported(schema) {
     if (SUPPORTED_PRIMITIVE_TYPES.has(resolved)) return true
     if (enumsByFqn.has(typeName) || enumsByFqn.has(resolved)) return true
     const structEntry = structsByFqn.get(typeName) || structsByFqn.get(resolved)
+    // No visited set here — isTypeSupported is only reached from the outer schema.every
+    // loop (not from isStructSupported), so there is no chain to cycle through.
     if (structEntry) return isStructSupported(structEntry)
     return false
   }
