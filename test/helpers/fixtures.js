@@ -246,7 +246,10 @@ function generateRecordAssertions(path, value, valueType, schema) {
         `precondition(${entryPath} != nil, "${swiftStringEscape(entryPath)}: expected non-nil")`
       )
       for (const f of structEntry.fields) {
-        assertions.push(...generateAssertions(`${entryPath}!.${f.name}`, v[f.name], f.type, schema))
+        const fv = f.required ? v[f.name] : normOptional(v[f.name], f.type, schema)
+        assertions.push(
+          ...generateAssertions(`${entryPath}!.${f.name}`, fv, f.type, schema, !f.required)
+        )
       }
     } else {
       assertions.push(...generateAssertions(entryPath, v, valueType, schema))
@@ -281,12 +284,14 @@ function fixtureSupported(schema) {
     return false
   }
 
-  function isStructSupported(entry) {
+  function isStructSupported(entry, visited = new Set()) {
+    if (visited.has(entry)) return false
+    visited.add(entry)
     return entry.fields.every((f) => {
       if (f.inline) return false
       const resolved = resolveAliasType(schema, f.type)
       const structEntry = structsByFqn.get(f.type) || structsByFqn.get(resolved)
-      if (structEntry) return isStructSupported(structEntry)
+      if (structEntry) return isStructSupported(structEntry, visited)
       return isTypeSupported(f.type)
     })
   }
@@ -413,18 +418,18 @@ for (const id of [...allIds].sort((a, b) => Number(a) - Number(b))) {
 
       const assertions = []
       for (const f of primary.fields) {
+        const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
         if (f.array) {
           const elemType = resolveAliasType(schema, f.type)
           assertions.push(
-            `precondition(decoded.${f.name}.count == ${value[f.name].length}, "${f.name} count: expected ${value[f.name].length}, got \\(decoded.${f.name}.count)")`
+            `precondition(decoded.${f.name}.count == ${v.length}, "${f.name} count: expected ${v.length}, got \\(decoded.${f.name}.count)")`
           )
-          for (let j = 0; j < value[f.name].length; j++) {
+          for (let j = 0; j < v.length; j++) {
             assertions.push(
-              ...generateAssertions(`decoded.${f.name}[${j}]`, value[f.name][j], elemType, schema)
+              ...generateAssertions(`decoded.${f.name}[${j}]`, v[j], elemType, schema)
             )
           }
         } else {
-          const v = f.required ? value[f.name] : normOptional(value[f.name], f.type, schema)
           const isOptional = !f.required
           assertions.push(...generateAssertions(`decoded.${f.name}`, v, f.type, schema, isOptional))
         }
