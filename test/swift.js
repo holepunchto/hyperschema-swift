@@ -161,6 +161,94 @@ test('swift: array of structs roundtrip', { skip: isWindows }, (t) => {
   t.ok(result.ok, `array of structs failed:\n${result.stderr}`)
 })
 
+// Versioned type tests
+test('swift: versioned type roundtrip', { skip: isWindows }, (t) => {
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('test')
+  ns.register({
+    name: 'msg-v0',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'text', type: 'string', required: true }
+    ]
+  })
+  ns.register({
+    name: 'msg-v1',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'text', type: 'string', required: true },
+      { name: 'priority', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'message',
+    versions: [
+      { version: 0, type: '@test/msg-v0' },
+      { version: 1, type: '@test/msg-v1' }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      'let v0 = Message.v0(MsgV0(version: 0, text: "hello"))',
+      'let buf0 = encode(message, v0)',
+      'let dec0 = try! decode(message, buf0)',
+      'guard case .v0(let m0) = dec0 else { fatalError("expected v0") }',
+      'precondition(m0.text == "hello", "text mismatch")',
+      'let v1 = Message.v1(MsgV1(version: 1, text: "world", priority: 5))',
+      'let buf1 = encode(message, v1)',
+      'let dec1 = try! decode(message, buf1)',
+      'guard case .v1(let m1) = dec1 else { fatalError("expected v1") }',
+      'precondition(m1.text == "world", "text mismatch")',
+      'precondition(m1.priority == 5, "priority mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `versioned type roundtrip failed:\n${result.stderr}`)
+})
+
+test('swift: versioned type sparse range dispatch', { skip: isWindows }, (t) => {
+  // Versions declared at 0 and 3; wire values 1 and 2 must decode as v3 (the upper-bound entry)
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('test')
+  ns.register({
+    name: 'ev-v0',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'code', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'ev-v3',
+    fields: [
+      { name: 'version', type: 'uint', required: true },
+      { name: 'code', type: 'uint', required: true }
+    ]
+  })
+  ns.register({
+    name: 'event',
+    versions: [
+      { version: 0, type: '@test/ev-v0' },
+      { version: 3, type: '@test/ev-v3' }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      // Encode a v3 value (version=3) — decode must land in .v3 case
+      'let ev = Event.v3(EvV3(version: 3, code: 42))',
+      'let buf = encode(event, ev)',
+      'let dec = try! decode(event, buf)',
+      'guard case .v3(let m) = dec else { fatalError("expected v3") }',
+      'precondition(m.code == 42, "code mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `sparse range dispatch failed:\n${result.stderr}`)
+})
+
 // Version evolution tests: these verify the Swift codegen handles schema
 // changes correctly and are not representable as static fixtures.
 
