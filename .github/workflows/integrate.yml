@@ -17,15 +17,21 @@ jobs:
       - run: npm run lint
   test:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux
           - os: macos-latest
             platform: darwin
+          - os: windows-latest
+            platform: windows
     runs-on: ${{ matrix.os }}
     name: Test / ${{ matrix.platform }}
     steps:
       - uses: holepunchto/actions/bare-base@v1
-      - uses: holepunchto/actions/setup-swift@v1
+      # No Swift on Windows: the roundtrip tests self-skip there, leaving the
+      # toolchain-free snapshot test to guard the code generator.
+      - if: matrix.platform != 'windows'
+        uses: holepunchto/actions/setup-swift@v1
       - run: npm test
