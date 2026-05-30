@@ -24,7 +24,7 @@ jobs:
           - os: macos-latest
             platform: darwin
           - os: windows-latest
-            platform: windows
+            platform: win32
     runs-on: ${{ matrix.os }}
     name: Test / ${{ matrix.platform }}
     steps:
