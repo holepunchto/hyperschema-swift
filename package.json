@@ -2,7 +2,6 @@
   "name": "hyperschema-swift",
   "version": "0.2.0",
   "description": "Swift code generation for Hyperschema",
-  "types": "./index.d.ts",
   "exports": {
     "./package": "./package.json",
     ".": {
