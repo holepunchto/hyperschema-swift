@@ -4,11 +4,15 @@
   "description": "Swift code generation for Hyperschema",
   "exports": {
     "./package": "./package.json",
-    ".": "./index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
   },
   "files": [
     "lib",
-    "index.js"
+    "index.js",
+    "index.d.ts"
   ],
   "imports": {
     "fs": {
