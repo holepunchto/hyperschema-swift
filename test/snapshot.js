@@ -1,19 +1,15 @@
 'use strict'
 
-const fs = require('fs')
-const path = require('path')
 const test = require('brittle')
 const SwiftHyperschema = require('../index.js')
 
-const GOLDEN = path.join(__dirname, 'snapshots', 'schema.swift')
-
 // A schema exercising every generator: alias, enum, struct (required +
 // optional + bool, i.e. the flags path), nested struct, array, record, and
-// versioned. The golden file captures the exact generated source, so any
-// codegen change shows up as a reviewable diff. Unlike the roundtrip tests it
-// needs no Swift toolchain, so it guards the generator anywhere `swift run`
-// can't run (e.g. a Windows runner, where the roundtrip tests self-skip).
-// Refresh with UPDATE_SNAPSHOTS=1.
+// versioned. The snapshot captures the exact generated source, so any codegen
+// change shows up as a reviewable diff. Unlike the roundtrip tests it needs no
+// Swift toolchain, so it guards the generator anywhere `swift run` can't run
+// (e.g. a Windows runner, where the roundtrip tests self-skip).
+// Refresh with `rm test/fixtures/snapshot.snapshot.cjs` and re-run.
 function buildSchema() {
   const schema = SwiftHyperschema.from(null)
   const ns = schema.namespace('demo')
@@ -60,20 +56,15 @@ function buildSchema() {
   return schema
 }
 
-// Bare has no global `process`; only Node refreshes the golden (typeof on an
-// undeclared global is safe and returns 'undefined' rather than throwing).
-const UPDATE_SNAPSHOTS = typeof process !== 'undefined' && !!process.env.UPDATE_SNAPSHOTS
-
 test('codegen snapshot matches golden', (t) => {
+  // Snapshot the source split into lines rather than as one multiline string.
+  // brittle writes a multiline string to the snapshot as a raw backtick literal
+  // with no escaping (lib/snapshot.js), so a `\` or `${` in the generated Swift
+  // — e.g. a `\(...)` interpolation — gets mangled when the snapshot is
+  // re-required, and the assert fails on every run after the first
+  // (holepunchto/brittle#109). An array isn't a string, so brittle serializes it
+  // via JSON.stringify, which escapes correctly no matter what the generator
+  // emits.
   const code = buildSchema().toCode()
-
-  if (UPDATE_SNAPSHOTS) {
-    fs.mkdirSync(path.dirname(GOLDEN), { recursive: true })
-    fs.writeFileSync(GOLDEN, code)
-    t.pass('snapshot updated')
-    return
-  }
-
-  const golden = fs.readFileSync(GOLDEN, 'utf8')
-  t.is(code, golden, 'generated Swift matches the golden (UPDATE_SNAPSHOTS=1 to refresh)')
+  t.snapshot(code.split('\n'))
 })
