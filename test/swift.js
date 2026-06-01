@@ -23,7 +23,7 @@ for (const fixture of fixtures) {
     for (const kase of swiftCases) {
       lines.push('do {')
       lines.push(`  let value = ${kase.swift.encode}`)
-      lines.push(`  let buffer = encode(${kase.swift.codec}, value)`)
+      lines.push(`  let buffer = try! encode(${kase.swift.codec}, value)`)
       lines.push(`  let decoded = try! decode(${kase.swift.codec}, buffer)`)
       for (const assertion of kase.swift.assertions) {
         lines.push(`  ${assertion}`)
@@ -82,7 +82,7 @@ test('swift: nested struct roundtrip', { skip: isWindows }, (t) => {
     schema,
     [
       'let value = Outer(label: "hello", point: Inner(x: 10, y: 20))',
-      'let buffer = encode(outer, value)',
+      'let buffer = try! encode(outer, value)',
       'let decoded = try! decode(outer, buffer)',
       'precondition(decoded.label == "hello", "label mismatch")',
       'precondition(decoded.point.x == 10, "point.x mismatch")',
@@ -109,7 +109,7 @@ test('swift: array field roundtrip', { skip: isWindows }, (t) => {
     schema,
     [
       'let value = Collection(name: "nums", values: [1, 2, 3])',
-      'let buffer = encode(collection, value)',
+      'let buffer = try! encode(collection, value)',
       'let decoded = try! decode(collection, buffer)',
       'precondition(decoded.name == "nums", "name mismatch")',
       'precondition(decoded.values.count == 3, "values count mismatch")',
@@ -145,7 +145,7 @@ test('swift: array of structs roundtrip', { skip: isWindows }, (t) => {
     schema,
     [
       'let value = Shape(name: "triangle", points: [Point(x: 0, y: 0), Point(x: 1, y: 0), Point(x: 0, y: 1)])',
-      'let buffer = encode(shape, value)',
+      'let buffer = try! encode(shape, value)',
       'let decoded = try! decode(shape, buffer)',
       'precondition(decoded.name == "triangle", "name mismatch")',
       'precondition(decoded.points.count == 3, "points count mismatch")',
@@ -192,12 +192,12 @@ test('swift: versioned type roundtrip', { skip: isWindows }, (t) => {
     schema,
     [
       'let v0 = Message.v0(MsgV0(version: 0, text: "hello"))',
-      'let buf0 = encode(message, v0)',
+      'let buf0 = try! encode(message, v0)',
       'let dec0 = try! decode(message, buf0)',
       'guard case .v0(let m0) = dec0 else { fatalError("expected v0") }',
       'precondition(m0.text == "hello", "text mismatch")',
       'let v1 = Message.v1(MsgV1(version: 1, text: "world", priority: 5))',
-      'let buf1 = encode(message, v1)',
+      'let buf1 = try! encode(message, v1)',
       'let dec1 = try! decode(message, buf1)',
       'guard case .v1(let m1) = dec1 else { fatalError("expected v1") }',
       'precondition(m1.text == "world", "text mismatch")',
@@ -239,7 +239,7 @@ test('swift: versioned type sparse range dispatch', { skip: isWindows }, (t) => 
     [
       // Encode a v3 value (version=3) — decode must land in .v3 case
       'let ev = Event.v3(EvV3(version: 3, code: 42))',
-      'let buf = encode(event, ev)',
+      'let buf = try! encode(event, ev)',
       'let dec = try! decode(event, buf)',
       'guard case .v3(let m) = dec else { fatalError("expected v3") }',
       'precondition(m.code == 42, "code mismatch")',
@@ -271,7 +271,7 @@ test('swift: schema version — no bump on unchanged schema', { skip: isWindows 
     s2,
     [
       'let value = TestStruct(field1: 42)',
-      'let buffer = encode(testStruct, value)',
+      'let buffer = try! encode(testStruct, value)',
       'let decoded = try! decode(testStruct, buffer)',
       'precondition(decoded.field1 == 42, "roundtrip failed: field1")',
       'print("OK")'
@@ -292,7 +292,7 @@ test('swift: schema version — bump on new field', { skip: isWindows }, (t) => 
     s1,
     [
       'let value = TestStruct(field1: 10)',
-      'let buffer = encode(testStruct, value)',
+      'let buffer = try! encode(testStruct, value)',
       'let decoded = try! decode(testStruct, buffer)',
       'precondition(decoded.field1 == 10, "roundtrip failed: field1")',
       'print("OK")'
@@ -314,7 +314,7 @@ test('swift: schema version — bump on new field', { skip: isWindows }, (t) => 
     s2,
     [
       'let value = TestStruct(field1: 10, field2: 20)',
-      'let buffer = encode(testStruct, value)',
+      'let buffer = try! encode(testStruct, value)',
       'let decoded = try! decode(testStruct, buffer)',
       'precondition(decoded.field1 == 10, "roundtrip failed: field1")',
       'precondition(decoded.field2 == 20, "roundtrip failed: field2")',
@@ -344,7 +344,7 @@ test('swift: reserved keyword field names', { skip: isWindows }, (t) => {
     schema,
     [
       'let value = Reserved(`class`: "hi", `default`: 7, `for`: 9, `where`: true)',
-      'let buffer = encode(reserved, value)',
+      'let buffer = try! encode(reserved, value)',
       'let decoded = try! decode(reserved, buffer)',
       'precondition(decoded.`class` == "hi", "class mismatch")',
       'precondition(decoded.`default` == 7, "default mismatch")',
@@ -355,3 +355,48 @@ test('swift: reserved keyword field names', { skip: isWindows }, (t) => {
   )
   t.ok(result.ok, `reserved keyword field names failed:\n${result.stderr}`)
 })
+
+// An unknown enum variant or schema version must surface as a catchable error,
+// not crash the process — a peer can legitimately send a newer tag (#26).
+test(
+  'swift: unknown enum variant / version throws instead of crashing',
+  { skip: isWindows },
+  (t) => {
+    const schema = SwiftHyperschema.from(null)
+    const ns = schema.namespace('test')
+    ns.register({ name: 'color', enum: ['red', 'green', 'blue'] })
+    // A one-required-uint struct encodes to a bare varint, so it lets us craft a
+    // buffer whose leading tag (99) is a variant/version neither type declares.
+    ns.register({ name: 'tag', fields: [{ name: 'value', type: 'uint', required: true }] })
+    ns.register({
+      name: 'msg-v0',
+      fields: [{ name: 'version', type: 'uint', required: true }]
+    })
+    ns.register({
+      name: 'msg-v1',
+      fields: [{ name: 'version', type: 'uint', required: true }]
+    })
+    ns.register({
+      name: 'message',
+      versions: [
+        { version: 0, type: '@test/msg-v0' },
+        { version: 1, type: '@test/msg-v1' }
+      ]
+    })
+
+    const result = runSwift(
+      schema,
+      [
+        'let unknownTag = try! encode(tag, Tag(value: 99))',
+        'var enumThrew = false',
+        'do { _ = try decode(color, unknownTag) } catch { enumThrew = true }',
+        'precondition(enumThrew, "enum decode should throw on unknown variant")',
+        'var versionThrew = false',
+        'do { _ = try decode(message, unknownTag) } catch { versionThrew = true }',
+        'precondition(versionThrew, "versioned decode should throw on unknown version")',
+        'print("OK")'
+      ].join('\n')
+    )
+    t.ok(result.ok, `unknown tag handling failed:\n${result.stderr}`)
+  }
+)
