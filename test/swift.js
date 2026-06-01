@@ -324,6 +324,38 @@ test('swift: schema version — bump on new field', { skip: isWindows }, (t) => 
   t.ok(r2.ok, r2.stderr)
 })
 
+// Field names that are Swift keywords must be backtick-escaped in the generated
+// code, or the package won't compile. Covers required, optional, and bool
+// fields so the escaping is exercised in the struct decl, init, encode, flags,
+// and decode paths.
+test('swift: reserved keyword field names', { skip: isWindows }, (t) => {
+  const schema = SwiftHyperschema.from(null)
+  schema.namespace('test').register({
+    name: 'reserved',
+    fields: [
+      { name: 'class', type: 'string', required: true },
+      { name: 'default', type: 'uint', required: true },
+      { name: 'for', type: 'uint' },
+      { name: 'where', type: 'bool' }
+    ]
+  })
+
+  const result = runSwift(
+    schema,
+    [
+      'let value = Reserved(`class`: "hi", `default`: 7, `for`: 9, `where`: true)',
+      'let buffer = try! encode(reserved, value)',
+      'let decoded = try! decode(reserved, buffer)',
+      'precondition(decoded.`class` == "hi", "class mismatch")',
+      'precondition(decoded.`default` == 7, "default mismatch")',
+      'precondition(decoded.`for` == 9, "for mismatch")',
+      'precondition(decoded.`where` == true, "where mismatch")',
+      'print("OK")'
+    ].join('\n')
+  )
+  t.ok(result.ok, `reserved keyword field names failed:\n${result.stderr}`)
+})
+
 // An unknown enum variant or schema version must surface as a catchable error,
 // not crash the process — a peer can legitimately send a newer tag (#26).
 test(
