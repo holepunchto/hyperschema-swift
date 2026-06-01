@@ -10,13 +10,11 @@ npm i hyperschema-swift
 
 ```js
 const SwiftHyperschema = require('hyperschema-swift')
-const Hyperschema = require('hyperschema')
 
-const schema = Hyperschema.from('./spec')
+const schema = SwiftHyperschema.from('./spec')
 
 // Get generated Swift source as a string
-const swift = new SwiftHyperschema(schema)
-const code = swift.toCode()
+const code = schema.toCode()
 
 // Or write a complete Swift package to disk
 SwiftHyperschema.toDisk(schema, './output')
