@@ -23,9 +23,12 @@ jobs:
             platform: linux
           - os: macos-latest
             platform: darwin
+          - os: windows-latest
+            platform: win32
     runs-on: ${{ matrix.os }}
     name: Test / ${{ matrix.platform }}
     steps:
       - uses: holepunchto/actions/bare-base@v1
       - uses: holepunchto/actions/setup-swift@v1
+        if: ${{ matrix.platform != 'win32' }}
       - run: npm test
