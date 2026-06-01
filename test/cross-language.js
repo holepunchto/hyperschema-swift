@@ -42,7 +42,7 @@ for (const fixture of fixtures) {
     for (const kase of swiftCases) {
       lines.push('do {')
       lines.push(`  let value = ${kase.swift.encode}`)
-      lines.push(`  let buffer = encode(${kase.swift.codec}, value)`)
+      lines.push(`  let buffer = try! encode(${kase.swift.codec}, value)`)
       lines.push('  print(buffer.base64EncodedString())')
       lines.push('}')
     }
