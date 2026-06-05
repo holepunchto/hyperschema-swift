@@ -57,14 +57,5 @@ function buildSchema() {
 }
 
 test('codegen snapshot matches golden', (t) => {
-  // Snapshot the source split into lines rather than as one multiline string.
-  // brittle writes a multiline string to the snapshot as a raw backtick literal
-  // with no escaping (lib/snapshot.js), so a `\` or `${` in the generated Swift
-  // — e.g. a `\(...)` interpolation — gets mangled when the snapshot is
-  // re-required, and the assert fails on every run after the first
-  // (holepunchto/brittle#109). An array isn't a string, so brittle serializes it
-  // via JSON.stringify, which escapes correctly no matter what the generator
-  // emits.
-  const code = buildSchema().toCode()
-  t.snapshot(code.split('\n'))
+  t.snapshot(buildSchema().toCode())
 })
