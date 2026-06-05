@@ -59,3 +59,18 @@ function buildSchema() {
 test('codegen snapshot matches golden', (t) => {
   t.snapshot(buildSchema().toCode())
 })
+
+// The generator synthesizes a SchemaDecodeError type for enum/versioned decode.
+// A schema type that PascalCases to the same name would redeclare it and emit
+// uncompilable Swift, so codegen must fail loudly instead. Needs an enum or
+// versioned type present, or the error enum (and the guard) isn't emitted.
+test('codegen rejects a schema type that collides with SchemaDecodeError', (t) => {
+  const schema = SwiftHyperschema.from(null)
+  const ns = schema.namespace('demo')
+  ns.register({ name: 'color', enum: ['red'] })
+  ns.register({
+    name: 'schema-decode-error',
+    fields: [{ name: 'x', type: 'uint', required: true }]
+  })
+  t.exception(() => schema.toCode(), /reserved Swift type name SchemaDecodeError/)
+})
