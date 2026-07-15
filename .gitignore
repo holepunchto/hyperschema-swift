@@ -4,5 +4,8 @@ package-lock.json
 # Swift workspace
 test/swift-workspace/
 
+# Test scratch storage
+test/test-storage/
+
 # Local planning docs
 tasks/
