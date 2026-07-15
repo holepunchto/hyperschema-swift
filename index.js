@@ -6,21 +6,16 @@ const Hyperschema = require('hyperschema')
 const generateSwift = require('./lib/codegen')
 
 class SwiftHyperschema extends Hyperschema {
-  toCode(opts) {
+  toCode() {
     this.linkAll()
-    return generateSwift(this, opts)
+    return generateSwift(this)
   }
 
   // Writes a valid Swift package layout:
   //   <dir>/Package.swift       — Swift package manifest, needed for `swift build` / `swift run`
   //   <dir>/Sources/Schema.swift — generated schema encodings
   //   <dir>/schema.json          — hyperschema version history
-  static toDisk(hyperschema, dir, opts) {
-    if (typeof dir === 'object' && dir) {
-      opts = dir
-      dir = null
-    }
-
+  static toDisk(hyperschema, dir) {
     if (!dir) dir = hyperschema.dir
 
     hyperschema.linkAll()
@@ -35,7 +30,7 @@ class SwiftHyperschema extends Hyperschema {
       JSON.stringify(hyperschema.toJSON(), null, 2) + '\n',
       { encoding: 'utf-8' }
     )
-    fs.writeFileSync(path.join(sources, 'Schema.swift'), hyperschema.toCode(opts), {
+    fs.writeFileSync(path.join(sources, 'Schema.swift'), hyperschema.toCode(), {
       encoding: 'utf-8'
     })
     fs.writeFileSync(path.join(root, 'Package.swift'), PACKAGE_SWIFT, { encoding: 'utf-8' })
