@@ -42,6 +42,8 @@ class SwiftHyperschema extends Hyperschema {
   }
 }
 
+const COMPACT_ENCODING_SWIFT_VERSION = '1.0.0'
+
 const PACKAGE_SWIFT = `// swift-tools-version: 5.10
 import PackageDescription
 
@@ -52,7 +54,7 @@ let package = Package(
     .library(name: "Schema", targets: ["Schema"])
   ],
   dependencies: [
-    .package(url: "https://github.com/holepunchto/compact-encoding-swift", branch: "main")
+    .package(url: "https://github.com/holepunchto/compact-encoding-swift", from: "${COMPACT_ENCODING_SWIFT_VERSION}")
   ],
   targets: [
     .target(

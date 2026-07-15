@@ -59,6 +59,22 @@ test('swift: toDisk writes Schema.swift', { skip: isWindows }, async (t) => {
   )
 })
 
+test('swift: Package.swift pins compact-encoding-swift to a semver requirement', async (t) => {
+  const dir = await tmp(t, { dir: path.join(__dirname, 'test-storage') })
+
+  const schema = SwiftHyperschema.from(dir)
+  schema.namespace('test').register({
+    name: 'test-struct',
+    fields: [{ name: 'id', type: 'uint', required: true }]
+  })
+
+  SwiftHyperschema.toDisk(schema, dir)
+
+  const pkg = fs.readFileSync(path.join(dir, 'Package.swift'), 'utf8')
+  t.ok(pkg.includes('from: "1.0.0"'), 'pins compact-encoding-swift with a from: requirement')
+  t.absent(pkg.includes('branch: "main"'), 'no branch requirement remains')
+})
+
 // Nested struct test: struct field referencing another struct
 test('swift: nested struct roundtrip', { skip: isWindows }, (t) => {
   const schema = SwiftHyperschema.from(null)
