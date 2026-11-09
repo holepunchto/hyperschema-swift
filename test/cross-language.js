@@ -51,6 +51,9 @@ for (const fixture of fixtures) {
     t.ok(result.ok, `Swift encode failed:\n${result.stderr}`)
 
     const outputs = result.stdout.trim().split('\n')
+    t.is(outputs.length, swiftCases.length, 'one output line per case')
+    if (outputs.length !== swiftCases.length) return
+
     for (let i = 0; i < swiftCases.length; i++) {
       const expected = Buffer.from(swiftCases[i].encoded, 'hex')
       const actual = Buffer.from(outputs[i], 'base64')

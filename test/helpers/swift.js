@@ -31,6 +31,23 @@ let package = Package(
 )
 `
 
+// SwiftPM's incremental build can miss a rewrite of main.swift that lands
+// shortly after the previous build and rerun the stale binary. Dropping the
+// target's intermediates forces it to recompile. Their location depends on the
+// build system, e.g. .build/<triple>/debug/Schema.build or
+// .build/out/Intermediates.noindex/Schema.build.
+function removeStaleIntermediates(dir = path.join(WORKSPACE, '.build'), depth = 3) {
+  if (depth === 0 || !fs.existsSync(dir)) return
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'checkouts') continue
+
+    const entryPath = path.join(dir, entry.name)
+    if (entry.name === 'Schema.build') fs.rmSync(entryPath, { recursive: true, force: true })
+    else removeStaleIntermediates(entryPath, depth - 1)
+  }
+}
+
 // runSwift calls are synchronous (spawnSync blocks the event loop), so
 // concurrent calls within the same process cannot interleave in the workspace.
 function runSwift(hyperschema, mainSwift) {
@@ -40,6 +57,7 @@ function runSwift(hyperschema, mainSwift) {
   SwiftHyperschema.toDisk(hyperschema, WORKSPACE)
   fs.writeFileSync(path.join(WORKSPACE, 'Package.swift'), TEST_PACKAGE_SWIFT)
   fs.writeFileSync(path.join(SOURCES, 'main.swift'), mainSwift)
+  removeStaleIntermediates()
 
   const result = spawnSync('swift', ['run'], {
     cwd: WORKSPACE,
