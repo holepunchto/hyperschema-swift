@@ -17,7 +17,7 @@ import PackageDescription
 
 let package = Package(
   name: "Schema",
-  platforms: [.macOS(.v11), .iOS(.v14)],
+  platforms: [.macOS(.v13), .iOS(.v15)],
   dependencies: [
     .package(url: "https://github.com/holepunchto/compact-encoding-swift", branch: "main")
   ],

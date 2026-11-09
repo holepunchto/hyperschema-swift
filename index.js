@@ -44,7 +44,7 @@ import PackageDescription
 
 let package = Package(
   name: "Schema",
-  platforms: [.macOS(.v11), .iOS(.v14)],
+  platforms: [.macOS(.v13), .iOS(.v15)],
   products: [
     .library(name: "Schema", targets: ["Schema"])
   ],
